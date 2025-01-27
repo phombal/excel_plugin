@@ -1,0 +1,55 @@
+<!-- Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT License. -->
+<!-- This file shows how to design a first-run page that provides a welcome screen to the user about the features of the add-in. -->
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Finance GPT Add-in</title>
+
+    <!-- Office JavaScript API -->
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+
+    <!-- For more information on Fluent UI, visit https://developer.microsoft.com/fluentui -->
+    <link rel="stylesheet" href="https://static2.sharepointonline.com/files/fabric/office-ui-fabric-core/11.0.0/css/fabric.min.css"/>
+
+    <!-- Template styles -->
+    <link href="taskpane.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body class="ms-font-m ms-welcome">
+    <!-- Initial loading message -->
+    <div id="sideload-msg" class="ms-welcome__main">
+        <h2 class="ms-font-xl">Please sideload your add-in to see app body.</h2>
+    </div>
+
+    <!-- Main content -->
+    <div id="app-body" class="ms-welcome__main" style="display: none;">
+        <div id="content-main">
+            <div class="padding">
+                <div class="ms-TextField">
+                    <label class="ms-Label">Ask about your spreadsheet:</label>
+                    <textarea id="queryInput" class="ms-TextField-field"></textarea>
+                </div>
+                <button class="ms-Button ms-Button--primary" id="submitQuery">
+                    <span class="ms-Button-label">Ask AI</span>
+                </button>
+                <div class="ms-TextField">
+                    <label class="ms-Label">AI Response:</label>
+                    <div id="responseArea" class="response-area"></div>
+                </div>
+                <button class="ms-Button ms-Button--primary" id="implementSuggestion" style="display: none;">
+                    <span class="ms-Button-label">Implement Suggestion</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Your JavaScript file -->
+    <script type="text/javascript" src="taskpane.js"></script>
+</body>
+
+</html>

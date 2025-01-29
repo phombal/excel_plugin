@@ -219,7 +219,7 @@ async function callOpenAI(data) {
         'Authorization': `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "gpt-4",
+        model: "gpt-4o",
         messages: [{
           role: "system",
           content: `You are a financial analysis assistant. Analyze the provided Excel data and respond to queries. 

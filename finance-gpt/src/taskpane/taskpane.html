@@ -20,33 +20,33 @@
 <link href="taskpane.css" rel="stylesheet" type="text/css" />
 </head>
 
-<body class="ms-font-m ms-welcome">
+<body class="ms-font-m">
 <!-- Initial loading message -->
     <div id="sideload-msg" class="ms-welcome__main">
 <h2 class="ms-font-xl">Please sideload your add-in to see app body.</h2>
 </div>
 
 <!-- Main content -->
-    <div id="app-body" class="ms-welcome__main" style="display: none;">
-<div id="content-main">
-<div class="padding">
-<div class="ms-TextField">
-<label class="ms-Label">Ask about your spreadsheet:</label>
-<textarea id="queryInput" class="ms-TextField-field"></textarea>
-</div>
-<button class="ms-Button ms-Button--primary" id="submitQuery">
-<span class="ms-Button-label">Ask AI</span>
-</button>
-<div class="ms-TextField">
-<label class="ms-Label">AI Response:</label>
-<div id="responseArea" class="response-area"></div>
-</div>
-                <button class="ms-Button ms-Button--primary" id="implementSuggestion" style="display: none;">
-                    <span class="ms-Button-label">Implement Suggestion</span>
-</button>
-</div>
-</div>
-</div>
+    <div id="app-body" class="app-container" style="display: none;">
+        <!-- Chat History Area -->
+        <div class="response-container">
+            <div id="chatHistory" class="chat-history"></div>
+        </div>
+
+        <!-- Chat Input Area -->
+        <div class="chat-container">
+            <div class="input-group">
+                <textarea id="queryInput" class="chat-input" placeholder="Ask about your spreadsheet..."></textarea>
+                <button class="ms-Button ms-Button--primary send-button" id="submitQuery">
+                    <span class="ms-Button-label">Send</span>
+                </button>
+            </div>
+            <div class="model-info">
+                <span class="model-badge">GPT-4</span>
+                <span class="model-status">Ready</span>
+            </div>
+        </div>
+    </div>
 
 <!-- Your JavaScript file -->
 <script type="text/javascript" src="taskpane.js"></script>

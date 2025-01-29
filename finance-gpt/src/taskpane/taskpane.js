@@ -100,14 +100,31 @@ async function handleQuery() {
         }
       };
 
-      console.log("Calling OpenAI API...");
-      const response = await callOpenAI(spreadsheetData);
-      console.log("OpenAI API response received");
+      // Make 5 API calls in parallel for better performance
+      console.log("Making 5 OpenAI API calls...");
+      const responses = await Promise.all([
+        callOpenAI(spreadsheetData),
+        callOpenAI(spreadsheetData),
+        callOpenAI(spreadsheetData),
+        callOpenAI(spreadsheetData),
+        callOpenAI(spreadsheetData)
+      ]);
+      console.log("Received all OpenAI API responses");
       
-      responseArea.innerHTML = response;
+      // Store all responses in the DOM
+      responses.forEach((response, index) => {
+        responseArea.setAttribute(`data-response${index + 1}`, response);
+      });
       
-      // Show implement button if the response contains executable code
-      if (response.includes("IMPLEMENT:") && response.includes("```javascript")) {
+      // Display the first response initially
+      responseArea.innerHTML = responses[0];
+      
+      // Show implement button if any response contains executable code
+      const hasImplementation = responses.some(response => 
+        response.includes("IMPLEMENT:") && response.includes("```javascript")
+      );
+      
+      if (hasImplementation) {
         console.log("Implementation code detected, showing button");
         implementButton.style.display = "block";
       }
@@ -121,88 +138,123 @@ async function handleQuery() {
 async function handleImplementation() {
   console.log("handleImplementation started");
   try {
-    const response = document.getElementById("responseArea").innerHTML;
-    const implementationMatch = response.match(/IMPLEMENT:\s*```javascript\s*([\s\S]*?)\s*```/);
-    
-    if (!implementationMatch) {
-      throw new Error("No valid implementation code found in the response");
-    }
-
-    let implementationCode = implementationMatch[1].trim();
-    console.log("Found implementation code");
-
-    // Validate the code contains a valid async function
-    if (!implementationCode.includes("async function") || !implementationCode.includes("context")) {
-      throw new Error("Invalid implementation code format");
-    }
-
-    // Basic security validation
-    const forbiddenPatterns = [
-      "eval\\(",
-      "Function\\(",
-      "setTimeout\\(",
-      "setInterval\\(",
-      "new\\s+Function",
-      "document\\.write",
-      "<script",
-      "window\\.",
-      "localStorage",
-      "sessionStorage",
-      "indexedDB",
-      "fetch\\("
-    ];
-
-    const securityRegex = new RegExp(forbiddenPatterns.join("|"), "i");
-    if (securityRegex.test(implementationCode)) {
-      throw new Error("Implementation contains potentially unsafe code");
-    }
-
-    // Create the function from the code string
-    let executeFunction;
-    try {
-      executeFunction = new Function('return ' + implementationCode)();
-    } catch (error) {
-      console.error("Error creating function:", error);
-      throw new Error("Failed to parse implementation code: " + error.message);
-    }
-
-    // Validate the function is actually async
-    if (!(executeFunction.constructor.name === "AsyncFunction")) {
-      throw new Error("Implementation must be an async function");
-    }
-
+    const responseArea = document.getElementById("responseArea");
     const statusArea = document.createElement("div");
     statusArea.className = "status-message";
-    document.getElementById("responseArea").appendChild(statusArea);
+    responseArea.appendChild(statusArea);
 
-    try {
-      await Excel.run(async (context) => {
-        console.log("Executing implementation code");
-        statusArea.textContent = "Executing changes...";
+    // Extract all implementations
+    const implementations = [];
+    for (let i = 1; i <= 5; i++) {
+      const response = responseArea.getAttribute(`data-response${i}`);
+      if (!response) continue;
+      
+      const match = response.match(/IMPLEMENT:\s*```javascript\s*([\s\S]*?)\s*```/);
+      if (match) {
+        implementations.push({
+          code: match[1].trim(),
+          index: i
+        });
+      }
+    }
+
+    if (implementations.length === 0) {
+      throw new Error("No valid implementation code found in any response");
+    }
+
+    // Try each implementation until one succeeds
+    let lastError = null;
+    for (const { code, index } of implementations) {
+      try {
+        statusArea.textContent = `Trying implementation ${index} of ${implementations.length}...`;
+        statusArea.style.color = "blue";
         
-        // Start undo batch to make changes atomic
-        context.application.suspendScreenUpdatingUntilNextSync();
-        
-        try {
-          await executeFunction(context);
-          await context.sync();
-          statusArea.textContent = "Changes implemented successfully!";
-          statusArea.style.color = "green";
-        } catch (error) {
-          console.error("Error during execution:", error);
-          throw error;
+        const result = await tryImplementation(code, statusArea);
+        if (result.success) {
+          console.log(`Implementation ${index} succeeded`);
+          return; // Success! We're done
         }
-      });
-    } catch (error) {
-      statusArea.textContent = "Error executing changes: " + error.message;
-      statusArea.style.color = "red";
-      throw error;
+        lastError = result.error;
+      } catch (error) {
+        console.log(`Implementation ${index} failed:`, error);
+        lastError = error;
+      }
+    }
+
+    // If we're here, all implementations failed
+    console.error("All implementations failed");
+    statusArea.textContent = "Error: All implementation attempts failed. Please try regenerating the solution.";
+    statusArea.style.color = "red";
+    if (lastError) {
+      const errorDetails = document.createElement("div");
+      errorDetails.textContent = `Last error: ${lastError.message}`;
+      errorDetails.style.fontSize = "0.9em";
+      errorDetails.style.marginTop = "5px";
+      statusArea.appendChild(errorDetails);
     }
 
   } catch (error) {
     console.error("Error in handleImplementation:", error);
     const errorMessage = "Error: " + error.message;
     document.getElementById("responseArea").innerHTML += "\n\n" + errorMessage;
+  }
+}
+
+async function tryImplementation(implementationCode, statusArea) {
+  // Basic security validation
+  const forbiddenPatterns = [
+    "eval\\(",
+    "Function\\(",
+    "setTimeout\\(",
+    "setInterval\\(",
+    "new\\s+Function",
+    "document\\.write",
+    "<script",
+    "window\\.",
+    "localStorage",
+    "sessionStorage",
+    "indexedDB",
+    "fetch\\("
+  ];
+
+  const securityRegex = new RegExp(forbiddenPatterns.join("|"), "i");
+  if (securityRegex.test(implementationCode)) {
+    throw new Error("Implementation contains potentially unsafe code");
+  }
+
+  // Create the function from the code string
+  let executeFunction;
+  try {
+    executeFunction = new Function('return ' + implementationCode)();
+  } catch (error) {
+    console.error("Error creating function:", error);
+    throw new Error("Failed to parse implementation code: " + error.message);
+  }
+
+  // Validate the function is actually async
+  if (!(executeFunction.constructor.name === "AsyncFunction")) {
+    throw new Error("Implementation must be an async function");
+  }
+
+  try {
+    await Excel.run(async (context) => {
+      console.log("Executing implementation code");
+      statusArea.textContent = "Executing changes...";
+      
+      // Start undo batch to make changes atomic
+      context.application.suspendScreenUpdatingUntilNextSync();
+      
+      await executeFunction(context);
+      await context.sync();
+      statusArea.textContent = "Changes implemented successfully!";
+      statusArea.style.color = "green";
+    });
+    return { success: true };
+  } catch (error) {
+    console.error("Error during execution:", error);
+    statusArea.textContent = "Attempt failed: " + error.message;
+    statusArea.style.color = "orange";
+    return { success: false, error };
   }
 }
 

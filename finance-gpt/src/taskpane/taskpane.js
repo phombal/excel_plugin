@@ -21,6 +21,7 @@ Office.onReady((info) => {
       
       // Set up event handlers
       document.getElementById("submitQuery").onclick = handleQuery;
+      setupFileUpload();
       
       console.log("UI initialized successfully");
     } else {
@@ -31,6 +32,126 @@ Office.onReady((info) => {
     }
   }
 });
+
+function setupFileUpload() {
+  const fileInput = document.getElementById('fileInput');
+  const uploadArea = document.querySelector('.upload-area');
+  const fileList = document.getElementById('fileList');
+  const processButton = document.getElementById('processFiles');
+  const uploadedFiles = new Set();
+
+  // Handle drag and drop events
+  uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+  });
+
+  uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+  });
+
+  uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+  });
+
+  // Handle file input change
+  fileInput.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+  });
+
+  // Handle process button click
+  processButton.addEventListener('click', processUploadedFiles);
+
+  function handleFiles(files) {
+    Array.from(files).forEach(file => {
+      if (uploadedFiles.has(file.name)) {
+        return; // Skip duplicate files
+      }
+
+      uploadedFiles.add(file.name);
+      const fileItem = document.createElement('div');
+      fileItem.className = 'file-item';
+      fileItem.innerHTML = `
+        <span class="file-item-name">${file.name}</span>
+        <button class="file-item-remove" data-filename="${file.name}">Remove</button>
+      `;
+
+      fileItem.querySelector('.file-item-remove').addEventListener('click', () => {
+        uploadedFiles.delete(file.name);
+        fileItem.remove();
+        processButton.style.display = uploadedFiles.size > 0 ? 'block' : 'none';
+      });
+
+      fileList.appendChild(fileItem);
+      processButton.style.display = 'block';
+    });
+  }
+
+  async function processUploadedFiles() {
+    try {
+      processButton.disabled = true;
+      const modelStatus = document.querySelector(".model-status");
+      modelStatus.textContent = "Processing files...";
+
+      // Add a message to the chat indicating file processing
+      addMessageToChat('user', 'Process uploaded financial documents');
+      const assistantMessage = addMessageToChat('assistant', '<div class="loading">Processing financial documents...</div>');
+
+      await Excel.run(async (context) => {
+        const sheet = context.workbook.worksheets.getActiveWorksheet();
+        
+        // Prepare the data for OpenAI
+        const fileData = Array.from(uploadedFiles).map(filename => ({
+          name: filename,
+          type: filename.split('.').pop().toLowerCase()
+        }));
+
+        const spreadsheetData = {
+          query: "Process these financial documents and create appropriate tables and analysis in Excel",
+          files: fileData,
+          currentSheet: sheet.name
+        };
+
+        try {
+          const response = await callOpenAI(spreadsheetData);
+          
+          // Store the response
+          assistantMessage.setAttribute('data-response1', response);
+          
+          // Format and display the response
+          const formattedResponse = formatResponse(response);
+          assistantMessage.querySelector('.message-content').innerHTML = formattedResponse;
+          
+          // Show implement button if the response contains executable code
+          if (response.includes("IMPLEMENT:") && response.includes("```javascript")) {
+            console.log("Implementation code detected, showing button");
+            const implementButton = document.createElement('button');
+            implementButton.className = 'implement-button';
+            implementButton.textContent = 'Implement Changes';
+            implementButton.onclick = () => handleImplementation(assistantMessage);
+            assistantMessage.appendChild(implementButton);
+          }
+
+          // Clear the file list after successful processing
+          fileList.innerHTML = '';
+          uploadedFiles.clear();
+          processButton.style.display = 'none';
+        } catch (error) {
+          assistantMessage.querySelector('.message-content').innerHTML = 
+            `<div class="status-message error">Error processing files: ${error.message}</div>`;
+        }
+
+        modelStatus.textContent = "Ready";
+      });
+    } catch (error) {
+      console.error("Error processing files:", error);
+    } finally {
+      processButton.disabled = false;
+    }
+  }
+}
 
 export async function run() {
   try {

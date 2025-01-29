@@ -13,9 +13,6 @@
 <!-- Office JavaScript API -->
 <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
 
-<!-- Anthropic SDK -->
-<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.18.0/dist/web/index.min.js"></script>
-
 <!-- For more information on Fluent UI, visit https://developer.microsoft.com/fluentui -->
 <link rel="stylesheet" href="https://static2.sharepointonline.com/files/fabric/office-ui-fabric-core/11.0.0/css/fabric.min.css"/>
 
@@ -64,7 +61,10 @@
                 </button>
             </div>
             <div class="model-info">
-                <span class="model-badge">GPT-4</span>
+                <select id="modelSelect" class="model-select">
+                    <option value="gpt4">GPT-4</option>
+                    <option value="claude">Claude 3.5 Sonnet</option>
+                </select>
                 <span class="model-status">Ready</span>
             </div>
         </div>

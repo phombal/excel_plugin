@@ -261,6 +261,105 @@ async function callOpenAI(data) {
   }
 }
 
+async function callClaude(data) {
+  console.log("callClaude started");
+  const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
+  
+  const maxRetries = 3;
+  let retryCount = 0;
+  let lastError = null;
+
+  while (retryCount < maxRetries) {
+    try {
+      console.log(`Making Claude API request (Attempt ${retryCount + 1})...`);
+      console.log('Request body:', JSON.stringify({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 4096,
+        temperature: 0,
+        system: SYSTEM_PROMPT,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Here is my query and spreadsheet data to analyze:\nQuery: ${data.query}\n\nSpreadsheet Data:\n${JSON.stringify(data.data, null, 2)}\n\nRange: ${data.range}\n\nSheet Metadata:\n${JSON.stringify(data.sheetMetadata, null, 2)}`
+            }
+          ]
+        }]
+      }, null, 2));
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 4096,
+          temperature: 0,
+          system: SYSTEM_PROMPT,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Here is my query and spreadsheet data to analyze:\nQuery: ${data.query}\n\nSpreadsheet Data:\n${JSON.stringify(data.data, null, 2)}\n\nRange: ${data.range}\n\nSheet Metadata:\n${JSON.stringify(data.sheetMetadata, null, 2)}`
+              }
+            ]
+          }]
+        })
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        console.error('Error response body:', errorData);
+        throw new Error(
+          `API request failed with status ${response.status}: ${
+            errorData ? JSON.stringify(errorData) : 'No error details available'
+          }`
+        );
+      }
+
+      const result = await response.json();
+      console.log("Claude API full response:", JSON.stringify(result, null, 2));
+      
+      if (!result.content || !result.content[0]?.text) {
+        console.error("Invalid response format:", JSON.stringify(result, null, 2));
+        throw new Error("Invalid response format from Claude API");
+      }
+      
+      return result.content[0].text;
+    } catch (error) {
+      console.error(`Error in callClaude (Attempt ${retryCount + 1}):`, error);
+      lastError = error;
+      retryCount++;
+      
+      if (retryCount >= maxRetries) {
+        throw new Error("Failed to get AI response after multiple retries: " + lastError.message);
+      }
+      
+      const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function getAIResponse(data) {
+  const modelSelect = document.getElementById("modelSelect");
+  const selectedModel = modelSelect.value;
+  
+  if (selectedModel === "gpt4") {
+    return callOpenAI(data);
+  } else {
+    return callClaude(data);
+  }
+}
+
 async function handleQuery() {
   console.log("handleQuery started");
   try {
@@ -313,9 +412,8 @@ async function handleQuery() {
         }
       };
 
-      // Make multiple API calls for redundancy
       let attempts = 0;
-      const maxAttempts = 3;
+      const maxAttempts = 3; // Maximum number of batch retry attempts
       let responses = null;
 
       while (attempts < maxAttempts && !responses) {
@@ -328,32 +426,18 @@ async function handleQuery() {
               '<div class="loading">Generating multiple solutions...</div>';
           }
 
+          // Make 5 API calls in parallel for better performance
+          console.log(`Making 5 AI API calls (Attempt ${attempts + 1})...`);
+          
           responses = await Promise.all([
-            callOpenAI(spreadsheetData),
-            callOpenAI(spreadsheetData),
-            callOpenAI(spreadsheetData),
-            callOpenAI(spreadsheetData),
-            callOpenAI(spreadsheetData)
+            getAIResponse(spreadsheetData),
+            getAIResponse(spreadsheetData),
+            getAIResponse(spreadsheetData),
+            getAIResponse(spreadsheetData),
+            getAIResponse(spreadsheetData)
           ]);
           
-          // Store all responses in the assistant message
-          responses.forEach((response, index) => {
-            assistantMessage.setAttribute(`data-response${index + 1}`, response);
-          });
-          
-          // Format and display the first response
-          const formattedResponse = formatResponse(responses[0]);
-          assistantMessage.querySelector('.message-content').innerHTML = formattedResponse;
-          
-          // Show implement button if the response contains executable code
-          if (responses[0].includes("IMPLEMENT:") && responses[0].includes("```javascript")) {
-            console.log("Implementation code detected, showing button");
-            const implementButton = document.createElement('button');
-            implementButton.className = 'implement-button';
-            implementButton.textContent = 'Implement Changes';
-            implementButton.onclick = () => handleImplementation(assistantMessage);
-            assistantMessage.appendChild(implementButton);
-          }
+          console.log("Received all AI API responses");
         } catch (error) {
           console.error(`Attempt ${attempts + 1} failed:`, error);
           attempts++;
@@ -362,8 +446,32 @@ async function handleQuery() {
             throw new Error("Failed to get AI response after multiple attempts. Please try again.");
           }
           
+          // Add a small delay before retrying
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
+      }
+      
+      // Store all responses in the assistant message
+      responses.forEach((response, index) => {
+        assistantMessage.setAttribute(`data-response${index + 1}`, response);
+      });
+      
+      // Format and display the first response
+      const formattedResponse = formatResponse(responses[0]);
+      assistantMessage.querySelector('.message-content').innerHTML = formattedResponse;
+      
+      // Show implement button if any response contains executable code
+      const hasImplementation = responses.some(response => 
+        response.includes("IMPLEMENT:") && response.includes("```javascript")
+      );
+      
+      if (hasImplementation) {
+        console.log("Implementation code detected, showing button");
+        const implementButton = document.createElement('button');
+        implementButton.className = 'implement-button';
+        implementButton.textContent = 'Implement Changes';
+        implementButton.onclick = () => handleImplementation(assistantMessage);
+        assistantMessage.appendChild(implementButton);
       }
 
       // Reset UI state

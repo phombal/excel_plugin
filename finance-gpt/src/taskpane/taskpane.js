@@ -21,7 +21,6 @@ Office.onReady((info) => {
       
       // Set up event handlers
       document.getElementById("submitQuery").onclick = handleQuery;
-      document.getElementById("implementSuggestion").onclick = handleImplementation;
       
       console.log("UI initialized successfully");
     } else {
@@ -52,6 +51,191 @@ export async function run() {
     });
   } catch (error) {
     console.error(error);
+  }
+}
+
+// System prompt for both models
+const SYSTEM_PROMPT = `You are a financial analysis assistant. Analyze the provided Excel data and respond to queries. 
+If the user's query involves any edits to the excel sheet, generate Office.js code that solves their request.
+
+Rules for generating Office.js code:
+1. Always wrap the code in an async function that takes a 'context' parameter
+2. Use proper error handling with try/catch blocks
+3. Always include context.sync() calls where necessary
+4. Use proper Office.js API patterns and best practices
+6. Return meaningful error messages if operations fail
+7. Always include error handling
+8. Validate inputs and ranges before operations
+9. MOST IMPORTANTLY: ALWAYS ENSURE THAT THE CODE IS EXECUTABLE AND FREE OF ANY SYNTAX AND RUNTIME ERRORS
+
+Format your response as follows for modifications:
+IMPLEMENT:
+\`\`\`javascript
+async function executeChanges(context) {
+  try {
+    // Your Office.js code here
+    await context.sync();
+  } catch (error) {
+    throw new Error("Failed to execute changes: " + error.message);
+  }
+}
+\`\`\`
+
+For analysis questions without modifications, provide a direct answer.`;
+
+async function callOpenAI(data) {
+  console.log("callOpenAI started");
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  
+  const maxRetries = 3;
+  let retryCount = 0;
+  let lastError = null;
+
+  while (retryCount < maxRetries) {
+    try {
+      console.log(`Making OpenAI API request (Attempt ${retryCount + 1})...`);
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "gpt-4",
+          messages: [{
+            role: "system",
+            content: SYSTEM_PROMPT
+          }, {
+            role: "user",
+            content: JSON.stringify(data)
+          }],
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("OpenAI API response received");
+      
+      if (!result.choices || !result.choices[0]?.message?.content) {
+        throw new Error("Invalid response format from OpenAI API");
+      }
+      
+      return result.choices[0].message.content;
+    } catch (error) {
+      console.error(`Error in callOpenAI (Attempt ${retryCount + 1}):`, error);
+      lastError = error;
+      retryCount++;
+      
+      if (retryCount >= maxRetries) {
+        throw new Error("Failed to get AI response after multiple retries: " + lastError.message);
+      }
+      
+      const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function callClaude(data) {
+  console.log("callClaude started");
+  const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
+  
+  const maxRetries = 3;
+  let retryCount = 0;
+  let lastError = null;
+
+  while (retryCount < maxRetries) {
+    try {
+      console.log(`Making Claude API request (Attempt ${retryCount + 1})...`);
+      console.log('Request body:', JSON.stringify({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 4096,
+        temperature: 0,
+        system: SYSTEM_PROMPT,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Here is my query and spreadsheet data to analyze:\nQuery: ${data.query}\n\nSpreadsheet Data:\n${JSON.stringify(data.data, null, 2)}\n\nRange: ${data.range}\n\nSheet Metadata:\n${JSON.stringify(data.sheetMetadata, null, 2)}`
+            }
+          ]
+        }]
+      }, null, 2));
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 4096,
+          temperature: 0,
+          system: SYSTEM_PROMPT,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Here is my query and spreadsheet data to analyze:\nQuery: ${data.query}\n\nSpreadsheet Data:\n${JSON.stringify(data.data, null, 2)}\n\nRange: ${data.range}\n\nSheet Metadata:\n${JSON.stringify(data.sheetMetadata, null, 2)}`
+              }
+            ]
+          }]
+        })
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        console.error('Error response body:', errorData);
+        throw new Error(
+          `API request failed with status ${response.status}: ${
+            errorData ? JSON.stringify(errorData) : 'No error details available'
+          }`
+        );
+      }
+
+      const result = await response.json();
+      console.log("Claude API full response:", JSON.stringify(result, null, 2));
+      
+      if (!result.content || !result.content[0]?.text) {
+        console.error("Invalid response format:", JSON.stringify(result, null, 2));
+        throw new Error("Invalid response format from Claude API");
+      }
+      
+      return result.content[0].text;
+    } catch (error) {
+      console.error(`Error in callClaude (Attempt ${retryCount + 1}):`, error);
+      lastError = error;
+      retryCount++;
+      
+      if (retryCount >= maxRetries) {
+        throw new Error("Failed to get AI response after multiple retries: " + lastError.message);
+      }
+      
+      const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function getAIResponse(data) {
+  const modelSelect = document.getElementById("modelSelect");
+  const selectedModel = modelSelect.value;
+  
+  if (selectedModel === "gpt4") {
+    return callOpenAI(data);
+  } else {
+    return callClaude(data);
   }
 }
 
@@ -122,17 +306,17 @@ async function handleQuery() {
           }
 
           // Make 5 API calls in parallel for better performance
-          console.log(`Making 5 OpenAI API calls (Attempt ${attempts + 1})...`);
+          console.log(`Making 5 AI API calls (Attempt ${attempts + 1})...`);
           
           responses = await Promise.all([
-            callOpenAI(spreadsheetData),
-            callOpenAI(spreadsheetData),
-            callOpenAI(spreadsheetData),
-            callOpenAI(spreadsheetData),
-            callOpenAI(spreadsheetData)
+            getAIResponse(spreadsheetData),
+            getAIResponse(spreadsheetData),
+            getAIResponse(spreadsheetData),
+            getAIResponse(spreadsheetData),
+            getAIResponse(spreadsheetData)
           ]);
           
-          console.log("Received all OpenAI API responses");
+          console.log("Received all AI API responses");
         } catch (error) {
           console.error(`Attempt ${attempts + 1} failed:`, error);
           attempts++;
@@ -359,89 +543,5 @@ async function tryImplementation(implementationCode, statusArea) {
     statusArea.textContent = "Attempt failed: " + error.message;
     statusArea.style.color = "orange";
     return { success: false, error };
-  }
-}
-
-async function callOpenAI(data) {
-  console.log("callOpenAI started");
-  const OPENAI_API_KEY = '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';
-  
-  const maxRetries = 3; // Maximum retries per individual API call
-  let retryCount = 0;
-  let lastError = null;
-
-  while (retryCount < maxRetries) {
-    try {
-      console.log(`Making OpenAI API request (Attempt ${retryCount + 1})...`);
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "gpt-4",  // Fixed typo in model name from "gpt-4o" to "gpt-4"
-          messages: [{
-            role: "system",
-            content: `You are a financial analysis assistant. Analyze the provided Excel data and respond to queries. 
-            If the user's query involves any edits to the excel sheet, generate Office.js code that solves their request.
-            
-            Rules for generating Office.js code:
-            1. Always wrap the code in an async function that takes a 'context' parameter
-            2. Use proper error handling with try/catch blocks
-            3. Always include context.sync() calls where necessary
-            4. Use proper Office.js API patterns and best practices
-            6. Return meaningful error messages if operations fail
-            7. Always include error handling
-            8. Validate inputs and ranges before operations
-            9. MOST IMPORTANTLY: ALWAYS ENSURE THAT THE CODE IS EXECUTABLE AND FREE OF ANY SYNTAX AND RUNTIME ERRORS
-            
-            Format your response as follows for modifications:
-            IMPLEMENT:
-            \`\`\`javascript
-            async function executeChanges(context) {
-              try {
-                // Your Office.js code here
-                await context.sync();
-              } catch (error) {
-                throw new Error("Failed to execute changes: " + error.message);
-              }
-            }
-            \`\`\`
-            
-            For analysis questions without modifications, provide a direct answer.`
-          }, {
-            role: "user",
-            content: JSON.stringify(data)
-          }],
-          temperature: 0.7
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log("OpenAI API response received");
-      
-      if (!result.choices || !result.choices[0]?.message?.content) {
-        throw new Error("Invalid response format from OpenAI API");
-      }
-      
-      return result.choices[0].message.content;
-    } catch (error) {
-      console.error(`Error in callOpenAI (Attempt ${retryCount + 1}):`, error);
-      lastError = error;
-      retryCount++;
-      
-      if (retryCount >= maxRetries) {
-        throw new Error("Failed to get AI response after multiple retries: " + lastError.message);
-      }
-      
-      // Add exponential backoff delay before retrying
-      const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
   }
 }

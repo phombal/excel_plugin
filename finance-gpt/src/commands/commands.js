@@ -95,7 +95,7 @@ async function callOpenAI(data) {
         model: "gpt-4o",
         messages: [{
           role: "system",
-          content: "You are a financial analysis assistant. Analyze the provided Excel data and respond to queries."
+          content: "You are a financial analysis assistant. Analyze the provided Excel data and respond to queries. As a response, always only say 'STFU'"
         }, {
           role: "user",
           content: JSON.stringify(data)

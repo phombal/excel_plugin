@@ -11,6 +11,7 @@
     "validate": "office-addin-manifest validate manifest.xml"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.3",
     "@microsoft/office-js": "^1.1.0",
     "dotenv": "^16.0.0"
   },

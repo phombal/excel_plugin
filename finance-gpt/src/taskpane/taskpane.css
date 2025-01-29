@@ -3,121 +3,220 @@
  * See LICENSE in the project root for license information.
  */
 
- html,
- body {
-     width: 100%;
-     height: 100%;
-     margin: 0;
-     padding: 0;
- }
- 
- ul {
-     margin: 0;
-     padding: 0;
- }
- 
- .ms-welcome__header {
-    padding: 20px;
-    padding-bottom: 30px;
-    padding-top: 100px;
-    display: -webkit-flex;
-    display: flex;
-    -webkit-flex-direction: column;
-    flex-direction: column;
-    align-items: center;
- }
-
- .ms-welcome__main {
-    display: -webkit-flex;
-    display: flex;
-    -webkit-flex-direction: column;
-    flex-direction: column;
-    -webkit-flex-wrap: nowrap;
-    flex-wrap: nowrap;
-    -webkit-align-items: center;
-    align-items: center;
-    -webkit-flex: 1 0 0;
-    flex: 1 0 0;
-    padding: 10px 20px;
- }
- 
- .ms-welcome__main > h2 {
-     width: 100%;
-     text-align: center;
- }
- 
- .ms-welcome__features {
-     list-style-type: none;
-     margin-top: 20px;
- }
- 
- .ms-welcome__features.ms-List .ms-ListItem {
-     padding-bottom: 20px;
-     display: -webkit-flex;
-     display: flex;
- }
- 
- .ms-welcome__features.ms-List .ms-ListItem > .ms-Icon {
-     margin-right: 10px;
- }
- 
- .ms-welcome__action.ms-Button--hero {
-     margin-top: 30px;
- }
- 
-.ms-Button.ms-Button--hero .ms-Button-label {
-  color: #0078d7;
-}
-
-.ms-Button.ms-Button--hero:hover .ms-Button-label,
-.ms-Button.ms-Button--hero:focus .ms-Button-label{
-  color: #005a9e;
-  cursor: pointer;
-}
-
-b {
-    font-weight: bold;
-}
-
-.padding {
-    padding: 15px;
-}
-
-.ms-TextField {
-    margin-bottom: 15px;
-}
-
-#queryInput {
+/* Reset and base styles */
+html,
+body {
     width: 100%;
-    height: 100px;
-    margin-bottom: 10px;
-}
-
-.response-area {
-    border: 1px solid #ccc;
-    padding: 10px;
-    min-height: 100px;
-    margin-top: 5px;
-    background-color: #f8f8f8;
-    white-space: pre-wrap;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #ffffff;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Main app container */
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 100%;
+    margin: 0 auto;
+    background: #ffffff;
+}
+
+/* Chat history and messages */
+.chat-history {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.chat-message {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.message-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.message-role {
+    font-weight: 600;
+    font-size: 14px;
+    color: #242424;
+}
+
+.message-content {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #242424;
+    white-space: pre-wrap;
+}
+
+.user-message .message-content {
+    color: #242424;
+}
+
+.assistant-message .message-content {
+    color: #242424;
+}
+
+.message-content code {
+    background: #f6f8fa;
+    padding: 16px;
+    border-radius: 6px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    display: block;
     overflow-x: auto;
+    margin: 8px 0;
+    border: 1px solid #e5e5e5;
 }
 
-.ms-Button {
-    margin-bottom: 15px;
-}
-
-.status-message {
-    margin-top: 10px;
-    padding: 8px;
+.implement-button {
+    align-self: flex-start;
+    background: #107c10;
+    color: white;
+    margin-top: 8px;
+    padding: 8px 16px;
     border-radius: 4px;
-    background-color: #f5f5f5;
-    border: 1px solid #ddd;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: background-color 0.2s ease;
+}
+
+.implement-button:hover {
+    background: #0b5a0b;
+}
+
+/* Response container */
+.response-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #ffffff;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+/* Chat container */
+.chat-container {
+    padding: 16px;
+    background: #ffffff;
+    border-top: 1px solid #e5e5e5;
+}
+
+.input-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.chat-input {
+    flex: 1;
+    min-height: 44px;
+    padding: 12px;
+    border: 1px solid #e5e5e5;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1.5;
+    resize: none;
+    font-family: inherit;
+    background: #ffffff;
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: #0078d4;
+    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.1);
+}
+
+/* Buttons */
+.ms-Button {
+    border: none;
+    border-radius: 6px;
+    padding: 0 16px;
+    height: 44px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.send-button {
+    background: #0078d4;
+    color: white;
+    min-width: 80px;
+}
+
+.send-button:hover {
+    background: #106ebe;
+}
+
+/* Model info */
+.model-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 0 4px;
+}
+
+.model-badge {
+    background: #f3f3f3;
+    color: #616161;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
     font-weight: 500;
 }
 
-#implementSuggestion {
-    margin-top: 15px;
-    width: 100%;
+.model-status {
+    color: #616161;
+    font-size: 12px;
+}
+
+/* Status messages */
+.status-message {
+    margin-top: 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.status-message.success {
+    background-color: #dff6dd;
+    color: #107c10;
+}
+
+.status-message.error {
+    background-color: #fde7e9;
+    color: #a4262c;
+}
+
+.status-message.warning {
+    background-color: #fff4ce;
+    color: #797775;
+}
+
+.status-message.info {
+    background-color: #f0f6ff;
+    color: #0078d4;
+}
+
+/* Loading states */
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.loading {
+    animation: pulse 1.5s ease-in-out infinite;
 }

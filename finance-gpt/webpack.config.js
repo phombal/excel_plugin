@@ -32,6 +32,11 @@ module.exports = async (env, options) => {
     },
     resolve: {
       extensions: [".html", ".js"],
+      fallback: {
+        fs: false,
+        stream: false,
+        crypto: false
+      }
     },
     module: {
       rules: [
@@ -91,6 +96,7 @@ module.exports = async (env, options) => {
       }),
       new webpack.ProvidePlugin({
         Promise: ["es6-promise", "Promise"],
+        XLSX: 'xlsx'
       }),
       new webpack.DefinePlugin({
         'process.env': {

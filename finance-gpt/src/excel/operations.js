@@ -1,4 +1,6 @@
 import { Logger } from '../utils/logger';
+import { addMessageToChat } from '../ui/chat.js';
+import * as XLSX from 'xlsx';
 
 export async function createPivotTable(context, params) {
   Logger.startOperation("Creating Pivot Table");
@@ -270,4 +272,216 @@ function applyConditionalFormatting(range, conditionalFormat) {
       format.iconSet.style = conditionalFormat.style;
       break;
   }
-} 
+}
+
+async function processUploadedFiles(uploadedFiles, processButton) {
+  try {
+    processButton.disabled = true;
+    const modelStatus = document.querySelector(".model-status");
+    modelStatus.textContent = "Processing files...";
+
+    // Add a message to the chat indicating file processing
+    addMessageToChat('user', 'Process uploaded financial documents');
+    const assistantMessage = addMessageToChat('assistant', '<div class="loading">Processing financial documents...</div>');
+
+    await Excel.run(async (context) => {
+      const sheet = context.workbook.worksheets.getActiveWorksheet();
+      
+      // Process each file
+      for (const filename of uploadedFiles) {
+        try {
+          const fileInput = document.getElementById('fileInput');
+          const file = Array.from(fileInput.files).find(f => f.name === filename);
+          
+          if (!file) {
+            throw new Error(`File ${filename} not found in input`);
+          }
+
+          // Read the file using FileReader
+          addMessageToChat('assistant', `Reading file ${filename}`);
+          const arrayBuffer = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(new Error(`FileReader error: ${e.target.error}`));
+            reader.readAsArrayBuffer(file);
+          });
+
+          // Parse the file using SheetJS
+          addMessageToChat('assistant', `Parsing file ${filename}`);
+          let workbook;
+          try {
+            workbook = XLSX.read(new Uint8Array(arrayBuffer), { 
+              type: 'array',
+              cellDates: true,
+              cellNF: true,
+              cellStyles: true
+            });
+          } catch (parseError) {
+            throw new Error(`Failed to parse file: ${parseError.message}`);
+          }
+
+          if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+            throw new Error('No sheets found in workbook');
+          }
+
+          // Get the first sheet
+          const firstSheetName = workbook.SheetNames[0];
+          const firstSheet = workbook.Sheets[firstSheetName];
+          
+          if (!firstSheet) {
+            throw new Error(`Sheet "${firstSheetName}" not found in workbook`);
+          }
+
+          // Convert to JSON with error handling
+          addMessageToChat('assistant', `Converting sheet data to JSON`);
+          let jsonData;
+          try {
+            jsonData = XLSX.utils.sheet_to_json(firstSheet, { 
+              header: 1,
+              raw: false,
+              dateNF: 'yyyy-mm-dd'
+            });
+          } catch (jsonError) {
+            throw new Error(`Failed to convert sheet to JSON: ${jsonError.message}`);
+          }
+
+          if (!jsonData || !jsonData.length) {
+            throw new Error('No data found in sheet');
+          }
+
+          // Calculate dimensions properly
+          const rowCount = jsonData.length;
+          const colCount = Math.max(...jsonData.map(row => Array.isArray(row) ? row.length : 0));
+
+          if (rowCount === 0 || colCount === 0) {
+            throw new Error('Invalid data dimensions detected');
+          }
+
+          // Normalize the data array to ensure consistent dimensions
+          const normalizedData = jsonData.map(row => {
+            const arrayRow = Array.isArray(row) ? row : [row];
+            return arrayRow.concat(Array(colCount - arrayRow.length).fill(""));
+          });
+
+          // Create a new worksheet for each file
+          addMessageToChat('assistant', `Creating new worksheet for ${filename}`);
+          const newSheet = context.workbook.worksheets.add(file.name.split('.')[0]);
+          
+          // Write the data to the worksheet with validated dimensions
+          addMessageToChat('assistant', `Writing ${rowCount} rows and ${colCount} columns of data to worksheet`);
+          
+          try {
+            // Set the values in chunks to handle large datasets better
+            const CHUNK_SIZE = 1000;
+            for (let startRow = 0; startRow < rowCount; startRow += CHUNK_SIZE) {
+              const chunkRows = Math.min(CHUNK_SIZE, rowCount - startRow);
+              const range = newSheet.getRangeByIndexes(
+                startRow,    // Starting row
+                0,          // Starting column
+                chunkRows,  // Number of rows
+                colCount    // Number of columns
+              );
+              range.values = normalizedData.slice(startRow, startRow + chunkRows);
+              await context.sync();
+            }
+
+            // Format the worksheet after all data is written
+            const fullRange = newSheet.getRangeByIndexes(0, 0, rowCount, colCount);
+            fullRange.format.autofitColumns();
+            fullRange.format.autofitRows();
+
+            // Add headers if present (first row)
+            if (rowCount > 0) {
+              const headerRange = newSheet.getRangeByIndexes(0, 0, 1, colCount);
+              headerRange.format.fill.color = "#D3D3D3";
+              headerRange.format.font.bold = true;
+            }
+
+            await context.sync();
+          } catch (writeError) {
+            console.error('Error writing data:', writeError);
+            throw new Error(`Failed to write data to worksheet: ${writeError.message}\nDimensions: ${rowCount}x${colCount}`);
+          }
+
+          addMessageToChat('assistant', `Successfully processed ${filename}`);
+        } catch (error) {
+          console.error(`Error processing file ${filename}:`, error);
+          addMessageToChat('assistant', `Error processing ${filename}: ${error.message}`);
+          throw error;
+        }
+      }
+
+      // Update the assistant message with success
+      assistantMessage.querySelector('.message-content').innerHTML = 
+        `<div class="status-message success">Successfully processed ${uploadedFiles.size} file(s)!</div>`;
+
+      modelStatus.textContent = "Ready";
+    });
+  } catch (error) {
+    console.error("Error processing files:", error);
+    assistantMessage.querySelector('.message-content').innerHTML = 
+      `<div class="status-message error">Error processing files: ${error.message}</div>`;
+  } finally {
+    processButton.disabled = false;
+  }
+}
+
+async function tryImplementation(implementationCode, statusArea) {
+  // Basic security validation
+  const forbiddenPatterns = [
+    "eval\\(",
+    "Function\\(",
+    "setTimeout\\(",
+    "setInterval\\(",
+    "new\\s+Function",
+    "document\\.write",
+    "<script",
+    "window\\.",
+    "localStorage",
+    "sessionStorage",
+    "indexedDB",
+    "fetch\\("
+  ];
+
+  const securityRegex = new RegExp(forbiddenPatterns.join("|"), "i");
+  if (securityRegex.test(implementationCode)) {
+    throw new Error("Implementation contains potentially unsafe code");
+  }
+
+  // Create the function from the code string
+  let executeFunction;
+  try {
+    executeFunction = new Function('return ' + implementationCode)();
+  } catch (error) {
+    console.error("Error creating function:", error);
+    throw new Error("Failed to parse implementation code: " + error.message);
+  }
+
+  // Validate the function is actually async
+  if (!(executeFunction.constructor.name === "AsyncFunction")) {
+    throw new Error("Implementation must be an async function");
+  }
+
+  try {
+    await Excel.run(async (context) => {
+      console.log("Executing implementation code");
+      statusArea.textContent = "Executing changes...";
+      
+      // Start undo batch to make changes atomic
+      context.application.suspendScreenUpdatingUntilNextSync();
+      
+      await executeFunction(context);
+      await context.sync();
+      statusArea.textContent = "Changes implemented successfully!";
+      statusArea.style.color = "green";
+    });
+    return { success: true };
+  } catch (error) {
+    console.error("Error during execution:", error);
+    statusArea.textContent = "Attempt failed: " + error.message;
+    statusArea.style.color = "orange";
+    return { success: false, error };
+  }
+}
+
+export { processUploadedFiles, tryImplementation }; 

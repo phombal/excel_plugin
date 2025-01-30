@@ -5,13 +5,14 @@
 
 /* global console, document, Excel, Office */
 
-// Import XLSX properly at the top level
-import * as XLSX from 'xlsx';
+import { setupFileUpload } from '../ui/fileUpload.js';
+import { getAIResponse } from '../services/ai-service.js';
+import { addMessageToChat, formatResponse, createStatusMessage } from '../ui/chat.js';
+import { tryImplementation } from '../excel/operations.js';
 
 Office.onReady((info) => {
   console.log("Office.onReady called", { host: info.host });
   if (info.host === Office.HostType.Excel) {
-    // Remove the require('xlsx') as we're now importing it properly
     console.log("Excel detected, setting up event handlers");
     
     // Get references to elements
@@ -37,432 +38,6 @@ Office.onReady((info) => {
   }
 });
 
-function setupFileUpload() {
-  const fileInput = document.getElementById('fileInput');
-  const uploadArea = document.querySelector('.upload-area');
-  const fileList = document.getElementById('fileList');
-  const processButton = document.getElementById('processFiles');
-  const uploadedFiles = new Set();
-
-  // Handle drag and drop events
-  uploadArea.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadArea.classList.add('dragover');
-  });
-
-  uploadArea.addEventListener('dragleave', () => {
-    uploadArea.classList.remove('dragover');
-  });
-
-  uploadArea.addEventListener('drop', (e) => {
-    e.preventDefault();
-    uploadArea.classList.remove('dragover');
-    handleFiles(e.dataTransfer.files);
-  });
-
-  // Handle file input change
-  fileInput.addEventListener('change', (e) => {
-    handleFiles(e.target.files);
-  });
-
-  // Handle process button click
-  processButton.addEventListener('click', processUploadedFiles);
-
-  function handleFiles(files) {
-    Array.from(files).forEach(file => {
-      if (uploadedFiles.has(file.name)) {
-        return; // Skip duplicate files
-      }
-
-      uploadedFiles.add(file.name);
-      const fileItem = document.createElement('div');
-      fileItem.className = 'file-item';
-      fileItem.innerHTML = `
-        <span class="file-item-name">${file.name}</span>
-        <button class="file-item-remove" data-filename="${file.name}">Remove</button>
-      `;
-
-      fileItem.querySelector('.file-item-remove').addEventListener('click', () => {
-        uploadedFiles.delete(file.name);
-        fileItem.remove();
-        processButton.style.display = uploadedFiles.size > 0 ? 'block' : 'none';
-      });
-
-      fileList.appendChild(fileItem);
-      processButton.style.display = 'block';
-    });
-  }
-
-  async function processUploadedFiles() {
-    try {
-      processButton.disabled = true;
-      const modelStatus = document.querySelector(".model-status");
-      modelStatus.textContent = "Processing files...";
-
-      // Add a message to the chat indicating file processing
-      addMessageToChat('user', 'Process uploaded financial documents');
-      const assistantMessage = addMessageToChat('assistant', '<div class="loading">Processing financial documents...</div>');
-
-      await Excel.run(async (context) => {
-        const sheet = context.workbook.worksheets.getActiveWorksheet();
-        
-        // Process each file
-        for (const filename of uploadedFiles) {
-          try {
-            const fileInput = document.getElementById('fileInput');
-            const file = Array.from(fileInput.files).find(f => f.name === filename);
-            
-            if (!file) {
-              throw new Error(`File ${filename} not found in input`);
-            }
-
-            // Read the file using FileReader
-            addMessageToChat('assistant', `Reading file ${filename}`);
-            const arrayBuffer = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = (e) => resolve(e.target.result);
-              reader.onerror = (e) => reject(new Error(`FileReader error: ${e.target.error}`));
-              reader.readAsArrayBuffer(file);
-            });
-
-            // Parse the file using SheetJS with more detailed error handling
-            addMessageToChat('assistant', `Parsing file ${filename}`);
-            let workbook;
-            try {
-              workbook = XLSX.read(new Uint8Array(arrayBuffer), { 
-                type: 'array',
-                cellDates: true,
-                cellNF: true,
-                cellStyles: true
-              });
-            } catch (parseError) {
-              throw new Error(`Failed to parse file: ${parseError.message}`);
-            }
-
-            if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
-              throw new Error('No sheets found in workbook');
-            }
-
-            // Get the first sheet
-            const firstSheetName = workbook.SheetNames[0];
-            const firstSheet = workbook.Sheets[firstSheetName];
-            
-            if (!firstSheet) {
-              throw new Error(`Sheet "${firstSheetName}" not found in workbook`);
-            }
-
-            // Convert to JSON with error handling
-            addMessageToChat('assistant', `Converting sheet data to JSON`);
-            let jsonData;
-            try {
-              jsonData = XLSX.utils.sheet_to_json(firstSheet, { 
-                header: 1,
-                raw: false,
-                dateNF: 'yyyy-mm-dd'
-              });
-            } catch (jsonError) {
-              throw new Error(`Failed to convert sheet to JSON: ${jsonError.message}`);
-            }
-
-            if (!jsonData || !jsonData.length) {
-              throw new Error('No data found in sheet');
-            }
-
-            // Calculate dimensions properly
-            const rowCount = jsonData.length;
-            const colCount = Math.max(...jsonData.map(row => Array.isArray(row) ? row.length : 0));
-
-            if (rowCount === 0 || colCount === 0) {
-              throw new Error('Invalid data dimensions detected');
-            }
-
-            // Log dimensions for debugging
-            console.log(`Data dimensions: ${rowCount} rows x ${colCount} columns`);
-
-            // Normalize the data array to ensure consistent dimensions
-            const normalizedData = jsonData.map(row => {
-              // Convert non-array rows to arrays
-              const arrayRow = Array.isArray(row) ? row : [row];
-              // Pad with empty strings if necessary
-              return arrayRow.concat(Array(colCount - arrayRow.length).fill(""));
-            });
-
-            // Create a new worksheet for each file
-            addMessageToChat('assistant', `Creating new worksheet for ${filename}`);
-            const newSheet = context.workbook.worksheets.add(file.name.split('.')[0]);
-            
-            // Write the data to the worksheet with validated dimensions
-            addMessageToChat('assistant', `Writing ${rowCount} rows and ${colCount} columns of data to worksheet`);
-            
-            try {
-              // Set the values in chunks to handle large datasets better
-              const CHUNK_SIZE = 1000;
-              for (let startRow = 0; startRow < rowCount; startRow += CHUNK_SIZE) {
-                const chunkRows = Math.min(CHUNK_SIZE, rowCount - startRow);
-                const range = newSheet.getRangeByIndexes(
-                  startRow,    // Starting row
-                  0,          // Starting column
-                  chunkRows,  // Number of rows
-                  colCount    // Number of columns
-                );
-                range.values = normalizedData.slice(startRow, startRow + chunkRows);
-                await context.sync();
-              }
-
-              // Format the worksheet after all data is written
-              const fullRange = newSheet.getRangeByIndexes(0, 0, rowCount, colCount);
-              fullRange.format.autofitColumns();
-              fullRange.format.autofitRows();
-
-              // Add headers if present (first row)
-              if (rowCount > 0) {
-                const headerRange = newSheet.getRangeByIndexes(0, 0, 1, colCount);
-                headerRange.format.fill.color = "#D3D3D3";
-                headerRange.format.font.bold = true;
-              }
-
-              await context.sync();
-            } catch (writeError) {
-              console.error('Error writing data:', writeError);
-              throw new Error(`Failed to write data to worksheet: ${writeError.message}\nDimensions: ${rowCount}x${colCount}`);
-            }
-
-            addMessageToChat('assistant', `Successfully processed ${filename}`);
-          } catch (error) {
-            console.error(`Error processing file ${filename}:`, error);
-            addMessageToChat('assistant', `Error processing ${filename}: ${error.message}`);
-            throw error;
-          }
-        }
-
-        // Update the assistant message with success
-        assistantMessage.querySelector('.message-content').innerHTML = 
-          `<div class="status-message success">Successfully processed ${uploadedFiles.size} file(s)!</div>`;
-
-        // Clear the file list after successful processing
-        fileList.innerHTML = '';
-        uploadedFiles.clear();
-        processButton.style.display = 'none';
-
-        modelStatus.textContent = "Ready";
-      });
-    } catch (error) {
-      console.error("Error processing files:", error);
-      assistantMessage.querySelector('.message-content').innerHTML = 
-        `<div class="status-message error">Error processing files: ${error.message}</div>`;
-    } finally {
-      processButton.disabled = false;
-    }
-  }
-}
-
-export async function run() {
-  try {
-    await Excel.run(async (context) => {
-      /**
-       * Insert your Excel code here
-       */
-      const range = context.workbook.getSelectedRange();
-
-      // Read the range address
-      range.load("address");
-
-      // Update the fill color
-      range.format.fill.color = "yellow";
-
-      await context.sync();
-      console.log(`The range address was ${range.address}.`);
-    });
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-// System prompt for both models
-const SYSTEM_PROMPT = `You are a financial analysis assistant. Analyze the provided Excel data and respond to queries. 
-If the user's query involves any edits to the excel sheet, generate Office.js code that solves their request.
-
-Rules for generating Office.js code:
-1. Always wrap the code in an async function that takes a 'context' parameter
-2. Use proper error handling with try/catch blocks
-3. Always include context.sync() calls where necessary
-4. Use proper Office.js API patterns and best practices
-6. Return meaningful error messages if operations fail
-7. Always include error handling
-8. Validate inputs and ranges before operations
-9. MOST IMPORTANTLY: ALWAYS ENSURE THAT THE CODE IS EXECUTABLE AND FREE OF ANY SYNTAX AND RUNTIME ERRORS
-
-Format your response as follows for modifications:
-IMPLEMENT:
-\`\`\`javascript
-async function executeChanges(context) {
-  try {
-    // Your Office.js code here
-    await context.sync();
-  } catch (error) {
-    throw new Error("Failed to execute changes: " + error.message);
-  }
-}
-\`\`\`
-
-For analysis questions without modifications, provide a direct answer.`;
-
-async function callOpenAI(data) {
-  console.log("callOpenAI started");
-  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-  
-  const maxRetries = 3;
-  let retryCount = 0;
-  let lastError = null;
-
-  while (retryCount < maxRetries) {
-    try {
-      console.log(`Making OpenAI API request (Attempt ${retryCount + 1})...`);
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          messages: [{
-            role: "system",
-            content: SYSTEM_PROMPT
-          }, {
-            role: "user",
-            content: JSON.stringify(data)
-          }],
-          temperature: 0.7
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log("OpenAI API response received");
-      
-      if (!result.choices || !result.choices[0]?.message?.content) {
-        throw new Error("Invalid response format from OpenAI API");
-      }
-      
-      return result.choices[0].message.content;
-    } catch (error) {
-      console.error(`Error in callOpenAI (Attempt ${retryCount + 1}):`, error);
-      lastError = error;
-      retryCount++;
-      
-      if (retryCount >= maxRetries) {
-        throw new Error("Failed to get AI response after multiple retries: " + lastError.message);
-      }
-      
-      const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
-
-async function callClaude(data) {
-  console.log("callClaude started");
-  const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
-  
-  const maxRetries = 3;
-  let retryCount = 0;
-  let lastError = null;
-
-  while (retryCount < maxRetries) {
-    try {
-      console.log(`Making Claude API request (Attempt ${retryCount + 1})...`);
-      console.log('Request body:', JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 4096,
-        temperature: 0,
-        system: SYSTEM_PROMPT,
-        messages: [{
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Here is my query and spreadsheet data to analyze:\nQuery: ${data.query}\n\nSpreadsheet Data:\n${JSON.stringify(data.data, null, 2)}\n\nRange: ${data.range}\n\nSheet Metadata:\n${JSON.stringify(data.sheetMetadata, null, 2)}`
-            }
-          ]
-        }]
-      }, null, 2));
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': CLAUDE_API_KEY,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 4096,
-          temperature: 0,
-          system: SYSTEM_PROMPT,
-          messages: [{
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Here is my query and spreadsheet data to analyze:\nQuery: ${data.query}\n\nSpreadsheet Data:\n${JSON.stringify(data.data, null, 2)}\n\nRange: ${data.range}\n\nSheet Metadata:\n${JSON.stringify(data.sheetMetadata, null, 2)}`
-              }
-            ]
-          }]
-        })
-      });
-
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        console.error('Error response body:', errorData);
-        throw new Error(
-          `API request failed with status ${response.status}: ${
-            errorData ? JSON.stringify(errorData) : 'No error details available'
-          }`
-        );
-      }
-
-      const result = await response.json();
-      console.log("Claude API full response:", JSON.stringify(result, null, 2));
-      
-      if (!result.content || !result.content[0]?.text) {
-        console.error("Invalid response format:", JSON.stringify(result, null, 2));
-        throw new Error("Invalid response format from Claude API");
-      }
-      
-      return result.content[0].text;
-    } catch (error) {
-      console.error(`Error in callClaude (Attempt ${retryCount + 1}):`, error);
-      lastError = error;
-      retryCount++;
-      
-      if (retryCount >= maxRetries) {
-        throw new Error("Failed to get AI response after multiple retries: " + lastError.message);
-      }
-      
-      const delay = Math.min(1000 * Math.pow(2, retryCount), 5000);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
-
-async function getAIResponse(data) {
-  const modelSelect = document.getElementById("modelSelect");
-  const selectedModel = modelSelect.value;
-  
-  if (selectedModel === "gpt4") {
-    return callOpenAI(data);
-  } else {
-    return callClaude(data);
-  }
-}
-
 async function handleQuery() {
   console.log("handleQuery started");
   try {
@@ -472,7 +47,6 @@ async function handleQuery() {
     }
     
     console.log("Query input:", queryInput);
-    const chatHistory = document.getElementById("chatHistory");
     const modelStatus = document.querySelector(".model-status");
     const sendButton = document.getElementById("submitQuery");
     
@@ -503,7 +77,7 @@ async function handleQuery() {
         colCount: usedRange.values[0].length
       });
       
-      // Prepare the data for OpenAI
+      // Prepare the data for AI service
       const spreadsheetData = {
         data: usedRange.values,
         range: usedRange.address,
@@ -586,16 +160,16 @@ async function handleQuery() {
       document.getElementById("queryInput").value = "";
       
       // Scroll to the bottom
+      const chatHistory = document.getElementById("chatHistory");
       chatHistory.scrollTop = chatHistory.scrollHeight;
     });
   } catch (error) {
     console.error("Error in handleQuery:", error);
-    const chatHistory = document.getElementById("chatHistory");
     const modelStatus = document.querySelector(".model-status");
     const sendButton = document.getElementById("submitQuery");
     
     // Add error message to the last assistant message
-    const lastAssistantMessage = chatHistory.querySelector('.assistant-message:last-child');
+    const lastAssistantMessage = document.querySelector('.assistant-message:last-child');
     if (lastAssistantMessage) {
       lastAssistantMessage.querySelector('.message-content').innerHTML = 
         `<div class="status-message error">Error: ${error.message}</div>`;
@@ -605,39 +179,6 @@ async function handleQuery() {
     modelStatus.classList.remove("loading");
     sendButton.disabled = false;
   }
-}
-
-function addMessageToChat(role, content) {
-  const chatHistory = document.getElementById("chatHistory");
-  const messageDiv = document.createElement('div');
-  messageDiv.className = `chat-message ${role}-message`;
-  
-  const header = document.createElement('div');
-  header.className = 'message-header';
-  
-  const roleSpan = document.createElement('span');
-  roleSpan.className = 'message-role';
-  roleSpan.textContent = role === 'user' ? 'You' : 'Assistant';
-  header.appendChild(roleSpan);
-  
-  const messageContent = document.createElement('div');
-  messageContent.className = 'message-content';
-  messageContent.innerHTML = content;
-  
-  messageDiv.appendChild(header);
-  messageDiv.appendChild(messageContent);
-  chatHistory.appendChild(messageDiv);
-  
-  return messageDiv;
-}
-
-// Helper function to format the response with syntax highlighting
-function formatResponse(response) {
-  // Replace code blocks with styled versions
-  return response.replace(
-    /```javascript([\s\S]*?)```/g,
-    (match, code) => `<code class="javascript">${code.trim()}</code>`
-  );
 }
 
 async function handleImplementation(messageElement) {
@@ -702,70 +243,5 @@ async function handleImplementation(messageElement) {
     console.error("Error in handleImplementation:", error);
     const errorMessage = "Error: " + error.message;
     messageElement.appendChild(createStatusMessage(errorMessage, "error"));
-  }
-}
-
-function createStatusMessage(message, type) {
-  const statusDiv = document.createElement("div");
-  statusDiv.className = `status-message ${type}`;
-  statusDiv.textContent = message;
-  return statusDiv;
-}
-
-async function tryImplementation(implementationCode, statusArea) {
-  // Basic security validation
-  const forbiddenPatterns = [
-    "eval\\(",
-    "Function\\(",
-    "setTimeout\\(",
-    "setInterval\\(",
-    "new\\s+Function",
-    "document\\.write",
-    "<script",
-    "window\\.",
-    "localStorage",
-    "sessionStorage",
-    "indexedDB",
-    "fetch\\("
-  ];
-
-  const securityRegex = new RegExp(forbiddenPatterns.join("|"), "i");
-  if (securityRegex.test(implementationCode)) {
-    throw new Error("Implementation contains potentially unsafe code");
-  }
-
-  // Create the function from the code string
-  let executeFunction;
-  try {
-    executeFunction = new Function('return ' + implementationCode)();
-  } catch (error) {
-    console.error("Error creating function:", error);
-    throw new Error("Failed to parse implementation code: " + error.message);
-  }
-
-  // Validate the function is actually async
-  if (!(executeFunction.constructor.name === "AsyncFunction")) {
-    throw new Error("Implementation must be an async function");
-  }
-
-  try {
-    await Excel.run(async (context) => {
-      console.log("Executing implementation code");
-      statusArea.textContent = "Executing changes...";
-      
-      // Start undo batch to make changes atomic
-      context.application.suspendScreenUpdatingUntilNextSync();
-      
-      await executeFunction(context);
-      await context.sync();
-      statusArea.textContent = "Changes implemented successfully!";
-      statusArea.style.color = "green";
-    });
-    return { success: true };
-  } catch (error) {
-    console.error("Error during execution:", error);
-    statusArea.textContent = "Attempt failed: " + error.message;
-    statusArea.style.color = "orange";
-    return { success: false, error };
   }
 }

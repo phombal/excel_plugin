@@ -16,6 +16,9 @@
 <!-- For more information on Fluent UI, visit https://developer.microsoft.com/fluentui -->
 <link rel="stylesheet" href="https://static2.sharepointonline.com/files/fabric/office-ui-fabric-core/11.0.0/css/fabric.min.css"/>
 
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fira+Code&display=swap" rel="stylesheet">
+
 <!-- Template styles -->
 <link href="taskpane.css" rel="stylesheet" type="text/css" />
 </head>
@@ -31,7 +34,7 @@
         <!-- File Upload Section -->
         <div class="upload-container">
             <div class="upload-header">
-                <h3 class="ms-font-m">Upload Financial Documents</h3>
+                <h3>Upload Financial Documents</h3>
                 <span class="upload-info">Supported formats: PDF, CSV, XLSX</span>
             </div>
             <div class="upload-area">
@@ -42,7 +45,7 @@
                 </label>
             </div>
             <div id="fileList" class="file-list"></div>
-            <button class="ms-Button ms-Button--primary process-button" id="processFiles" style="display: none;">
+            <button class="ms-Button process-button" id="processFiles" style="display: none;">
                 <span class="ms-Button-label">Process Files</span>
             </button>
         </div>
@@ -55,9 +58,14 @@
         <!-- Chat Input Area -->
         <div class="chat-container">
             <div class="input-group">
-                <textarea id="queryInput" class="chat-input" placeholder="Ask about your spreadsheet..."></textarea>
-                <button class="ms-Button ms-Button--primary send-button" id="submitQuery">
+                <textarea id="queryInput" class="chat-input" placeholder="Ask about your spreadsheet..." rows="1"></textarea>
+                <button class="ms-Button send-button" id="submitQuery">
                     <span class="ms-Button-label">Send</span>
+                </button>
+            </div>
+            <div class="button-group">
+                <button class="ms-Button clear-button" id="clearChat">
+                    <span class="ms-Button-label">Clear Chat</span>
                 </button>
             </div>
             <div class="model-info">

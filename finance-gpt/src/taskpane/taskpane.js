@@ -26,7 +26,15 @@ Office.onReady((info) => {
       
       // Set up event handlers
       document.getElementById("submitQuery").onclick = handleQuery;
+      document.getElementById("clearChat").onclick = clearChat;
       setupFileUpload();
+      
+      // Auto-resize textarea
+      const textarea = document.getElementById("queryInput");
+      textarea.addEventListener("input", function() {
+        this.style.height = "auto";
+        this.style.height = (this.scrollHeight) + "px";
+      });
       
       console.log("UI initialized successfully");
     } else {
@@ -37,6 +45,59 @@ Office.onReady((info) => {
     }
   }
 });
+
+function clearChat() {
+  const chatHistory = document.getElementById("chatHistory");
+  chatHistory.innerHTML = "";
+  addMessageToChat('assistant', 'Chat history cleared. How can I help you?');
+}
+
+async function callClaude(data) {
+  try {
+    const CLAUDE_API_KEY = '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';
+    
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': CLAUDE_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-3-sonnet-20240229',
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: `You are an Excel expert assistant. Analyze this spreadsheet data and answer the following query:
+            
+            Spreadsheet Data:
+            ${JSON.stringify(data.data, null, 2)}
+            
+            Range: ${data.range}
+            Row Count: ${data.sheetMetadata.rowCount}
+            Column Count: ${data.sheetMetadata.columnCount}
+            Has Headers: ${data.sheetMetadata.hasHeaders}
+            
+            User Query: ${data.query}
+            
+            Please provide a detailed response with explanations and any relevant Excel formulas or operations.`
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Claude API error: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.content[0].text;
+  } catch (error) {
+    console.error('Error calling Claude API:', error);
+    throw new Error('Failed to get response from Claude. Please try again or switch to GPT-4.');
+  }
+}
 
 async function handleQuery() {
   console.log("handleQuery started");

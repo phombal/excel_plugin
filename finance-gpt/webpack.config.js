@@ -17,11 +17,12 @@ async function getHttpsOptions() {
 
 module.exports = async (env, options) => {
   const dev = options.mode === "development";
+  const buildType = dev ? "dev" : "prod";
   const config = {
     devtool: "source-map",
     entry: {
       polyfill: ["core-js/stable", "regenerator-runtime/runtime"],
-      taskpane: ["./src/taskpane/taskpane.js"],
+      taskpane: "./src/taskpane/taskpane.js",
       commands: "./src/commands/commands.js",
     },
     output: {
@@ -109,9 +110,9 @@ module.exports = async (env, options) => {
       },
       server: {
         type: "https",
-        options: env.WEBPACK_BUILD || options.https !== undefined ? options.https : await getHttpsOptions(),
+        options: await getHttpsOptions(),
       },
-      port: process.env.npm_package_config_dev_server_port || 3000,
+      port: 3000,
       hot: true,
     },
   };
